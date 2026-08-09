@@ -66,8 +66,14 @@ public:
 	void default_area_linear_damp_changed() { linear_damp_changed = true; }
 	void default_area_angular_damp_changed() { angular_damp_changed = true; }
 
+	/// Highest priority first, matching Godot Physics. An area that replaces an override stops the
+	/// ones behind it, so this order decides which area wins. Ties keep insertion order.
 	void add_active_area(Box2DArea2D *p_area) {
-		areas_to_step.ordered_insert(p_area);
+		uint32_t index = 0;
+		while (index < areas_to_step.size() && areas_to_step[index]->get_priority() >= p_area->get_priority()) {
+			index++;
+		}
+		areas_to_step.insert(index, p_area);
 	}
 	void remove_active_area(Box2DArea2D *p_area) {
 		areas_to_step.erase(p_area);

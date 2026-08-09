@@ -33,4 +33,6 @@ Box2DGrooveJoint2D::Box2DGrooveJoint2D(const Vector2 &p_a_groove1, const Vector2
 	wheel_def.userData = this;
 
 	joint_id = b2CreateWheelJoint(space->get_world_id(), &wheel_def);
+
+	apply_constraint_tuning();
 }

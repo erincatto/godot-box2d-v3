@@ -92,7 +92,7 @@ Box2DSpace2D::Box2DSpace2D() {
 	substeps = Box2DProjectSettings::get_substeps();
 
 	// Gravity is changed by the default area immediately - the value set here doesn't matter.
-	default_gravity = Vector2(0.0, 9.8);
+	default_gravity = Vector2(0.0, 980.0);
 
 	int hardware_thread_count = OS::get_singleton()->get_processor_count();
 	int max_thread_count = Box2DProjectSettings::get_max_threads();
@@ -108,8 +108,6 @@ Box2DSpace2D::Box2DSpace2D() {
 	world_def.gravity = to_box2d(default_gravity);
 	world_def.contactHertz = Box2DProjectSettings::get_contact_hertz();
 	world_def.contactDampingRatio = Box2DProjectSettings::get_contact_damping_ratio();
-	world_def.jointHertz = Box2DProjectSettings::get_joint_hertz();
-	world_def.jointDampingRatio = Box2DProjectSettings::get_joint_damping_ratio();
 
 	if (Box2DProjectSettings::get_friction_mixing_rule() == Box2DMixingRule::MIXING_RULE_GODOT) {
 		world_def.frictionCallback = godot_friction_callback;

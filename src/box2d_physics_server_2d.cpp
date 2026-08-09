@@ -981,13 +981,12 @@ bool Box2DPhysicsServer2D::_body_test_motion(
 
 	Vector2 recovery = Vector2();
 
-	//1.0f * to_godot(BOX2D_LINEAR_SLOP)
 	p_margin = Math::max(p_margin, 0.0001f);
 
 	// 1) Recover from overlaps
 	const int iterations = 8;
 	const float recover_ratio = 0.5f;
-	const float min_contact_depth = to_godot(BOX2D_LINEAR_SLOP);
+	const float min_contact_depth = BOX2D_LINEAR_SLOP;
 
 	bool recovered = false;
 
@@ -1414,6 +1413,7 @@ void Box2DPhysicsServer2D::_set_active(bool p_active) {
 }
 
 void Box2DPhysicsServer2D::_init() {
+	// Runs before the first world, body or shape def is built, which the length unit requires.
 	box2d_set_pixels_per_meter(Box2DProjectSettings::get_pixels_per_meter());
 }
 

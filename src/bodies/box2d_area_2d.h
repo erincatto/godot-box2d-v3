@@ -118,10 +118,6 @@ public:
 	void set_body_monitor_callback(const Callable &p_callback) { body_monitor_callback = p_callback; }
 	void set_area_monitor_callback(const Callable &p_callback) { area_monitor_callback = p_callback; }
 
-	bool operator<(const Box2DArea2D &other) const {
-		return get_priority() < other.get_priority();
-	}
-
 	void shapes_changed() override;
 
 protected:

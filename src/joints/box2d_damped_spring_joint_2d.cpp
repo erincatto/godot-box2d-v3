@@ -28,6 +28,8 @@ Box2DDampedSpringJoint2D::Box2DDampedSpringJoint2D(const Vector2 &p_anchor_a, co
 	distance_def.userData = this;
 
 	joint_id = b2CreateDistanceJoint(space->get_world_id(), &distance_def);
+
+	apply_constraint_tuning();
 }
 
 void Box2DDampedSpringJoint2D::set_rest_length(float p_length) {

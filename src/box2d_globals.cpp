@@ -1,12 +1,18 @@
 #include "box2d_globals.h"
 
-float BOX2D_PIXELS_PER_METER = 1;
 float BOX2D_LINEAR_SLOP = 0.005f;
+
+void box2d_set_pixels_per_meter(float p_value) {
+	// Must run before any b2Default*Def call, those bake the length unit into their defaults.
+	b2SetLengthUnitsPerMeter(p_value);
+
+	BOX2D_LINEAR_SLOP = 0.005f * p_value;
+}
 
 // TODO: revisit, consider implementing Godot-style cast function
 float box2d_compute_safe_fraction(float p_unsafe_fraction, float p_total_distance, float p_amount) {
 	if (p_amount <= 0.0f) {
-		p_amount = 2.0f * to_godot(BOX2D_LINEAR_SLOP);
+		p_amount = 2.0f * BOX2D_LINEAR_SLOP;
 	}
 
 	if (p_total_distance <= 0.0f) {

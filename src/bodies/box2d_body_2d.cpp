@@ -540,6 +540,13 @@ void Box2DBody2D::update_mass() {
 	b2Body_ApplyMassFromShapes(body_id);
 
 	mass_data = b2Body_GetMassData(body_id);
+
+	// Shape inertia comes from density but Godot supplies mass directly. Rescale as if
+	// the density were chosen to hit that mass, else the inertia to mass ratio is wrong.
+	if (mass_data.mass > 0.0f) {
+		mass_data.rotationalInertia *= mass / mass_data.mass;
+	}
+
 	mass_data.mass = mass;
 
 	if (override_inertia) {
@@ -802,8 +809,10 @@ void Box2DBody2D::apply_area_overrides() {
 		b2Body_SetGravityScale(body_id, body_def.gravityScale);
 	}
 
+	// Box2D scales world gravity itself, so the area contribution has to be scaled here to match
+	// Godot, which applies the body scale to the combined gravity before turning it into a force.
 	if (!area_overrides.total_gravity.is_zero_approx()) {
-		b2Body_ApplyForceToCenter(body_id, to_box2d(area_overrides.total_gravity), true);
+		b2Body_ApplyForceToCenter(body_id, to_box2d(mass_data.mass * body_def.gravityScale * area_overrides.total_gravity), true);
 	}
 
 	if (linear_damp_mode == PhysicsServer2D::BODY_DAMP_MODE_COMBINE && area_overrides.total_linear_damp != body_def.linearDamping) {

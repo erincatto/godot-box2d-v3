@@ -14,7 +14,13 @@
 
 using namespace godot;
 
-extern float BOX2D_PIXELS_PER_METER;
+/// Box2D is told how large a meter is at startup, so it scales its own tolerances and def
+/// defaults and the simulation runs directly in pixels. Nothing crossing the boundary needs
+/// scaling, which is what keeps torque, inertia and angular velocity from each needing a
+/// different power of the pixel scale.
+void box2d_set_pixels_per_meter(float p_value);
+
+/// Mirrors Box2D's internal linear slop, which is not public. In pixels.
 extern float BOX2D_LINEAR_SLOP;
 
 /// Mask bit used by all bodies.
@@ -26,13 +32,8 @@ const uint64_t AREA_MASK_BIT = (1ULL << 62);
 /// Mask bit used by all monitorable areas.
 const uint64_t AREA_MONITORABLE_MASK_BIT = (1ULL << 61);
 
-_FORCE_INLINE_ void box2d_set_pixels_per_meter(float p_value) {
-	BOX2D_PIXELS_PER_METER = p_value;
-}
-
 _FORCE_INLINE_ Vector2 to_godot(const b2Vec2 p_vec) {
-	float scale = BOX2D_PIXELS_PER_METER;
-	return Vector2(scale * p_vec.x, scale * p_vec.y);
+	return Vector2(p_vec.x, p_vec.y);
 }
 
 _FORCE_INLINE_ Vector2 to_godot_normalized(const b2Vec2 p_vec) {
@@ -40,22 +41,21 @@ _FORCE_INLINE_ Vector2 to_godot_normalized(const b2Vec2 p_vec) {
 }
 
 _FORCE_INLINE_ b2Vec2 to_box2d(const Vector2 p_vec) {
-	float scale = 1 / BOX2D_PIXELS_PER_METER;
-	return scale * b2Vec2{ (float)p_vec.x, (float)p_vec.y };
+	return b2Vec2{ (float)p_vec.x, (float)p_vec.y };
 }
 
 _FORCE_INLINE_ b2Vec2 to_box2d_normalized(const Vector2 p_vec) {
 	return b2Normalize(b2Vec2{ (float)p_vec.x, (float)p_vec.y });
 }
 
-_FORCE_INLINE_ float to_box2d(float p_length) {
-	float scale = 1 / BOX2D_PIXELS_PER_METER;
-	return scale * p_length;
+/// Values are 1:1 across the boundary. These remain as the narrowing point for double builds
+/// and to mark where a quantity changes hands.
+_FORCE_INLINE_ float to_box2d(float p_value) {
+	return p_value;
 }
 
-_FORCE_INLINE_ float to_godot(float p_length) {
-	float scale = BOX2D_PIXELS_PER_METER;
-	return scale * p_length;
+_FORCE_INLINE_ float to_godot(float p_value) {
+	return p_value;
 }
 
 _FORCE_INLINE_ b2Transform to_box2d(Transform2D p_transform) {

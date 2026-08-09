@@ -5,7 +5,7 @@ import sys
 from methods import print_error
 
 
-libname = "godot-box2c"
+libname = "godot-box2d"
 projectdir = "demo"
 
 localEnv = Environment(tools=["default"], PLATFORM="")

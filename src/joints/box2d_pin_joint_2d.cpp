@@ -20,12 +20,16 @@ Box2DPinJoint2D::Box2DPinJoint2D(const Vector2 &p_pos, Box2DBody2D *p_body_a, Bo
 	revolute_def.localAnchorB = to_box2d(anchor_b);
 
 	// TODO: account for mass?
-	revolute_def.maxMotorTorque = 100000.0;
+	// Effectively unlimited. Torque goes with the square of the length unit.
+	float length_units = b2GetLengthUnitsPerMeter();
+	revolute_def.maxMotorTorque = 100000.0f * length_units * length_units;
 
 	revolute_def.collideConnected = !disabled_collisions_between_bodies;
 	revolute_def.userData = this;
 
 	joint_id = b2CreateRevoluteJoint(space->get_world_id(), &revolute_def);
+
+	apply_constraint_tuning();
 }
 
 void Box2DPinJoint2D::set_upper_limit(float p_limit) {
