@@ -37,6 +37,7 @@ public:
 	float get_one_way_collision_margin() const { return one_way_collision_margin; }
 
 	bool should_filter_one_way_collision(const Vector2 &p_motion, const Vector2 &p_normal, float p_depth) const;
+	bool should_filter_one_way_collision(const Vector2 &p_normal) const;
 
 	Transform2D get_global_transform() const;
 	Transform2D get_global_transform_with_parent_transform(const Transform2D &p_parent_transform) const;
@@ -53,6 +54,8 @@ public:
 	Box2DCollisionObject2D *get_collision_object() const { return object; }
 
 private:
+	Vector2 get_one_way_normal() const;
+
 	Box2DCollisionObject2D *object = nullptr;
 	Box2DShape2D *shape = nullptr;
 	PhysicsServer2D::ShapeType shape_type = PhysicsServer2D::SHAPE_CUSTOM;

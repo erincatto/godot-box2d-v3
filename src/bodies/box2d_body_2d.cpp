@@ -1,4 +1,5 @@
 #include "box2d_body_2d.h"
+#include "../box2d_physics_server_2d.h"
 #include "../joints/box2d_damped_spring_joint_2d.h"
 #include "../joints/box2d_joint_2d.h"
 #include "../spaces/box2d_space_2d.h"
@@ -101,7 +102,7 @@ void Box2DBody2D::set_inertia(float p_inertia) {
 
 Vector2 Box2DBody2D::get_center_of_mass_global() const {
 	ERR_FAIL_COND_V(!in_space(), Vector2());
-	return to_godot(b2Body_GetWorldCenterOfMass(body_id));
+	return to_godot(b2Body_GetWorldCenter(body_id));
 }
 
 void Box2DBody2D::set_center_of_mass(const Vector2 &p_center) {
@@ -278,10 +279,9 @@ void Box2DBody2D::set_sleep_enabled(bool p_can_sleep) {
 static void set_rotation_and_position_fast(Transform2D &p_xf, b2Rot p_rot, Vector2 p_pos) {
 	TracyZoneScoped("Box2DBody2D::sync_state::set_rotation_and_position (fast)");
 
-	b2Rot b = p_rot;
-	b2Rot a = { p_xf.columns[0].x, p_xf.columns[0].y };
+	b2Rot current = { p_xf.columns[0].x, p_xf.columns[0].y };
 
-	float delta_angle = b2RelativeAngle(b, a);
+	float delta_angle = b2RelativeAngle(current, p_rot);
 
 	p_xf.columns[0] = p_xf.columns[0].rotated(delta_angle);
 	p_xf.columns[1] = p_xf.columns[1].rotated(delta_angle);
@@ -372,6 +372,9 @@ void Box2DBody2D::get_contacts(int p_max_count) {
 
 		ERR_FAIL_NULL(other_body);
 
+		// Manifold anchors are relative to each body's center of mass.
+		b2Pos center_a = b2Body_GetWorldCenter(b2Shape_GetBody(box2d_contact.shapeIdA));
+
 		for (int point_index = 0; point_index < box2d_contact.manifold.pointCount; point_index++) {
 			b2ManifoldPoint point = box2d_contact.manifold.points[point_index];
 
@@ -389,7 +392,7 @@ void Box2DBody2D::get_contacts(int p_max_count) {
 			Contact contact;
 			contact.body = other_body;
 			contact.normal_impulse = to_godot(point.normalImpulse);
-			contact.local_position = to_godot(point.point);
+			contact.local_position = to_godot(b2OffsetPos(center_a, point.anchorA));
 			contact.local_normal = to_godot_normalized(box2d_contact.manifold.normal);
 			contact.depth = depth;
 			contact.local_shape = local_shape->get_index();
@@ -486,11 +489,56 @@ Vector2 Box2DBody2D::get_contact_collider_velocity_at_position(int p_contact_idx
 }
 
 void Box2DBody2D::add_collision_exception(RID p_rid) {
+	if (p_rid == get_rid()) {
+		return;
+	}
+
 	exceptions.insert(p_rid);
+
+	if (space) {
+		space->add_body_with_exceptions(this);
+		space->mark_exceptions_dirty();
+	}
 }
 
 void Box2DBody2D::remove_collision_exception(RID p_rid) {
 	exceptions.erase(p_rid);
+
+	// Stay on the space's rebuild list even when this empties the set, otherwise the rebuild
+	// never runs for this body and the joint it already owns outlives the exception.
+	if (space) {
+		space->mark_exceptions_dirty();
+	}
+}
+
+void Box2DBody2D::destroy_exception_joints() {
+	for (b2JointId joint_id : exception_joints) {
+		if (b2Joint_IsValid(joint_id)) {
+			b2DestroyJoint(joint_id, true);
+		}
+	}
+	exception_joints.clear();
+}
+
+void Box2DBody2D::rebuild_exception_joints(const Box2DPhysicsServer2D *p_server) {
+	destroy_exception_joints();
+
+	if (!in_space()) {
+		return;
+	}
+
+	for (RID rid : exceptions) {
+		Box2DBody2D *other = p_server->get_body(rid);
+		if (!other || other->get_space() != space) {
+			continue;
+		}
+
+		b2FilterJointDef joint_def = b2DefaultFilterJointDef();
+		joint_def.base.bodyIdA = body_id;
+		joint_def.base.bodyIdB = other->get_body_id();
+
+		exception_joints.push_back(b2CreateFilterJoint(space->get_world_id(), &joint_def));
+	}
 }
 
 TypedArray<RID> Box2DBody2D::get_collision_exceptions() const {
@@ -543,7 +591,8 @@ void Box2DBody2D::update_mass() {
 
 	// Shape inertia comes from density but Godot supplies mass directly. Rescale as if
 	// the density were chosen to hit that mass, else the inertia to mass ratio is wrong.
-	if (mass_data.mass > 0.0f) {
+	// Zero mass means infinitely heavy, which must not take rotation with it.
+	if (mass > 0.0f && mass_data.mass > 0.0f) {
 		mass_data.rotationalInertia *= mass / mass_data.mass;
 	}
 
@@ -779,6 +828,12 @@ void Box2DBody2D::on_added_to_space() {
 
 	update_linear_damping();
 	update_angular_damping();
+
+	if (has_collision_exceptions()) {
+		space->add_body_with_exceptions(this);
+	}
+	// A body joining a space can also be the far end of somebody else's exception.
+	space->mark_exceptions_dirty();
 }
 
 void Box2DBody2D::on_remove_from_space() {
@@ -791,6 +846,11 @@ void Box2DBody2D::on_remove_from_space() {
 		space->remove_force_integration_body(this);
 		in_force_integration_list = false;
 	}
+
+	// The Box2D body is already gone, so its joints went with it.
+	exception_joints.clear();
+	space->mark_exceptions_dirty();
+	space->remove_body_with_exceptions(this);
 }
 
 uint64_t Box2DBody2D::modify_mask_bits(uint32_t p_mask) {
@@ -810,9 +870,10 @@ void Box2DBody2D::apply_area_overrides() {
 	}
 
 	// Box2D scales world gravity itself, so the area contribution has to be scaled here to match
-	// Godot, which applies the body scale to the combined gravity before turning it into a force.
+	// Godot, which applies the gravity scale to the combined gravity before turning it into a force.
 	if (!area_overrides.total_gravity.is_zero_approx()) {
-		b2Body_ApplyForceToCenter(body_id, to_box2d(mass_data.mass * body_def.gravityScale * area_overrides.total_gravity), true);
+		bool wake = false;
+		b2Body_ApplyForceToCenter(body_id, to_box2d(mass_data.mass * body_def.gravityScale * area_overrides.total_gravity), wake);
 	}
 
 	if (linear_damp_mode == PhysicsServer2D::BODY_DAMP_MODE_COMBINE && area_overrides.total_linear_damp != body_def.linearDamping) {

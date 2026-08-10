@@ -13,14 +13,13 @@
 using namespace godot;
 
 struct Box2DTaskData {
-	WorkerThreadPool::GroupID group_id;
-	void *task_context;
+	WorkerThreadPool::TaskID task_id;
 	b2TaskCallback *task;
-	int32_t item_count;
-	int32_t task_count;
+	void *task_context;
 };
 
 class Box2DDirectSpaceState2D;
+class Box2DPhysicsServer2D;
 
 class Box2DSpace2D {
 public:
@@ -30,8 +29,6 @@ public:
 	void step(float p_step);
 
 	bool is_locked() const { return locked; }
-
-	int get_max_tasks() const { return max_tasks; }
 
 	void sync_state();
 
@@ -97,12 +94,29 @@ public:
 		bodies_with_overrides.insert(p_body);
 	}
 
+	void add_body_with_exceptions(Box2DBody2D *p_body) {
+		bodies_with_exceptions.insert(p_body);
+	}
+	void remove_body_with_exceptions(Box2DBody2D *p_body) {
+		bodies_with_exceptions.erase(p_body);
+	}
+
+	/// Cheap no-op for the common case of a space that has no exceptions at all.
+	void mark_exceptions_dirty() {
+		if (!bodies_with_exceptions.is_empty()) {
+			exceptions_dirty = true;
+		}
+	}
+
+	void rebuild_exception_joints(const Box2DPhysicsServer2D *p_server);
+
 private:
 	b2WorldDef world_def = b2DefaultWorldDef();
 	LocalVector<Box2DBody2D *> constant_force_list;
 	LocalVector<Box2DBody2D *> force_integration_list;
 	LocalVector<Box2DArea2D *> areas_to_step;
 	HashSet<Box2DBody2D *> bodies_with_overrides;
+	HashSet<Box2DBody2D *> bodies_with_exceptions;
 
 	Box2DArea2D *default_area = nullptr;
 	Box2DDirectSpaceState2D *direct_state = nullptr;
@@ -110,7 +124,6 @@ private:
 	b2WorldId world_id = b2_nullWorldId;
 	RID rid;
 	float last_step = -1.0;
-	b2ContactEvents contact_events;
 	PackedVector2Array debug_contacts;
 	int debug_contact_count = 0;
 	int max_tasks = -1;
@@ -119,6 +132,7 @@ private:
 
 	bool linear_damp_changed = false;
 	bool angular_damp_changed = false;
+	bool exceptions_dirty = false;
 
 	bool locked = false;
 };

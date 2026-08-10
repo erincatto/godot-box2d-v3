@@ -48,7 +48,7 @@ int32_t Box2DDirectSpaceState2D::_intersect_point(
 	overlap_results.clear();
 	b2ShapeProxy proxy = b2MakeProxy(&transform.p, 1, 0.0);
 	OverlapQueryCollector collector(p_max_results, query_filter, overlap_results);
-	b2World_OverlapShape(space->get_world_id(), &proxy, box2d_filter, overlap_callback, &collector);
+	b2World_OverlapShape(space->get_world_id(), b2Pos_zero, &proxy, box2d_filter, overlap_callback, &collector);
 
 	for (ShapeOverlap overlap : collector.results) {
 		ERR_FAIL_COND_V(overlap.shape->get_index() < 0, 0);
@@ -85,7 +85,7 @@ bool Box2DDirectSpaceState2D::_intersect_ray(
 		b2Vec2 from = to_box2d(p_from);
 		b2ShapeProxy proxy = b2MakeProxy(&from, 1, 0.0);
 		OverlapQueryCollector collector(1, query_filter, overlap_results);
-		b2World_OverlapShape(space->get_world_id(), &proxy, box2d_filter, overlap_callback, &collector);
+		b2World_OverlapShape(space->get_world_id(), b2Pos_zero, &proxy, box2d_filter, overlap_callback, &collector);
 
 		if (collector.count > 0) {
 			ShapeOverlap overlap = collector.results[0];

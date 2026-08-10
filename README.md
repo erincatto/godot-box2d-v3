@@ -12,16 +12,26 @@ Godot Box2D v3 is a high-performance physics extension for Godot 4.3+ that imple
 - Additional APIs to make the physics server easier and faster to use (docs coming soon)
 
 ## Unsupported Features / Limitations
+
 Most of the Physics API has been implemented, but the following features do not have parity with Godot Physics:
+
 - `WorldBoundaryShape2D` unsupported (planned for a future version of Box2D)
 - `SeparationRayShape2D` unsupported
 - Space parameters (`space_set_param`) unsupported because Box2D v3 uses a different solver
 - "Cast Ray" CCD mode (`CCDMode::CCD_MODE_CAST_RAY`) unsupported
 - Contacts are not visible when `Visible Collision Shapes` is enabled
 - Convex polygons cannot have more than 8 vertices (does not affect `CollisionPolygon2D`)
-- `constant_linear_velocity` and `constant_angular_velocity` unsupported on static bodies
 - `CharacterBody2D`: unstable movement on moving platforms
+- One-way collision is decided from the contact normal, ignoring the one-way
+  collision margin. A rigid body that ends up overlapping a one-way platform from above is pushed
+  back out rather than allowed to continue through. Character movement (`CharacterBody2D`) still
+  accounts for penetration depth and margin.
+- Collision exceptions place the two bodies in the same simulation island, so they sleep and wake
+  together, and adding one at runtime wakes both.
+- Removing a collision exception between two bodies that are already overlapping and at rest does
+  not push them apart. Collision resumes once either body moves.
 
 ## Planned Features
+
 - [Cross-platform determinism](https://box2d.org/posts/2024/08/determinism/)
 - Serialization + Rollback

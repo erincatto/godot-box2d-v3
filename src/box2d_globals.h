@@ -1,6 +1,7 @@
 #pragma once
 
 #include "box2d/box2d.h"
+#include "box2d/constants.h"
 #include <godot_cpp/templates/local_vector.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -19,9 +20,6 @@ using namespace godot;
 /// scaling, which is what keeps torque, inertia and angular velocity from each needing a
 /// different power of the pixel scale.
 void box2d_set_pixels_per_meter(float p_value);
-
-/// Mirrors Box2D's internal linear slop, which is not public. In pixels.
-extern float BOX2D_LINEAR_SLOP;
 
 /// Mask bit used by all bodies.
 const uint64_t BODY_MASK_BIT = (1ULL << 63);
@@ -170,57 +168,6 @@ private:
 	int joint_count = 0;
 };
 
-/// Range for iterating chain segment shapes.
-class ChainSegmentRange {
-public:
-	explicit ChainSegmentRange(b2ChainId chain_id) :
-			chain_id(chain_id) {
-		segment_count = b2Chain_GetSegmentCount(chain_id);
-		shape_ids = memnew_arr(b2ShapeId, segment_count);
-		b2Chain_GetSegments(chain_id, shape_ids, segment_count);
-	}
-
-	~ChainSegmentRange() {
-		memdelete_arr(shape_ids);
-	}
-
-	class Iterator {
-	public:
-		Iterator(b2ShapeId *ids, int index) :
-				shape_ids(ids), index(index) {}
-
-		b2ShapeId operator*() const {
-			return shape_ids[index];
-		}
-
-		Iterator &operator++() {
-			++index;
-			return *this;
-		}
-
-		bool operator!=(const Iterator &other) const {
-			return index != other.index;
-		}
-
-	private:
-		b2ShapeId *shape_ids;
-		int index;
-	};
-
-	Iterator begin() const {
-		return Iterator(shape_ids, 0);
-	}
-
-	Iterator end() const {
-		return Iterator(shape_ids, segment_count);
-	}
-
-private:
-	b2ChainId chain_id;
-	b2ShapeId *shape_ids;
-	int segment_count;
-};
-
 struct ShapeCollidePoint {
 	Vector2 point = Vector2();
 	/// Positive if penetrating
@@ -318,7 +265,6 @@ struct Box2DShapePrimitive {
 	}
 
 	Box2DShapePrimitive inflated(float p_radius) const {
-		p_radius = to_box2d(p_radius);
 		Box2DShapePrimitive result;
 
 		switch (type) {

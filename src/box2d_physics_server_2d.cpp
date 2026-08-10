@@ -986,7 +986,7 @@ bool Box2DPhysicsServer2D::_body_test_motion(
 	// 1) Recover from overlaps
 	const int iterations = 8;
 	const float recover_ratio = 0.5f;
-	const float min_contact_depth = BOX2D_LINEAR_SLOP;
+	const float min_contact_depth = B2_LINEAR_SLOP;
 
 	bool recovered = false;
 
@@ -1419,6 +1419,12 @@ void Box2DPhysicsServer2D::_init() {
 
 void Box2DPhysicsServer2D::_step(float p_step) {
 	TracyZoneScoped("Step");
+
+	// Exception joints cannot be created while a world is locked, so changes made since the last
+	// step land here, in time to take effect this step.
+	for (Box2DSpace2D *active_space : active_spaces) {
+		active_space->rebuild_exception_joints(this);
+	}
 
 	if (active) {
 		for (Box2DSpace2D *active_space : active_spaces) {

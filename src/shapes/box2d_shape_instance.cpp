@@ -57,6 +57,10 @@ b2ShapeDef Box2DShapeInstance::get_shape_def() {
 	return shape_def;
 }
 
+Vector2 Box2DShapeInstance::get_one_way_normal() const {
+	return -(get_transform() * get_collision_object()->get_transform()).columns[1].normalized();
+}
+
 bool Box2DShapeInstance::should_filter_one_way_collision(const Vector2 &p_motion, const Vector2 &p_normal, float p_depth) const {
 	ERR_FAIL_COND_V(!shape, false);
 	ERR_FAIL_COND_V(!object, false);
@@ -65,11 +69,24 @@ bool Box2DShapeInstance::should_filter_one_way_collision(const Vector2 &p_motion
 		return false;
 	}
 
-	Vector2 one_way_normal = -(get_transform() * get_collision_object()->get_transform()).columns[1].normalized();
+	Vector2 one_way_normal = get_one_way_normal();
 	float max_allowed_depth = p_motion.length() * Math::max(p_motion.normalized().dot(one_way_normal), real_t(0.0f)) + get_one_way_collision_margin();
 	if (p_normal.dot(one_way_normal) <= 0.0f || p_depth > max_allowed_depth) {
 		return true;
 	}
 
 	return false;
+}
+
+/// Presolve gets a point and a normal but no separation, so the depth escape that lets a body
+/// already sunk into a platform keep falling is only available on the character and query paths.
+bool Box2DShapeInstance::should_filter_one_way_collision(const Vector2 &p_normal) const {
+	ERR_FAIL_COND_V(!shape, false);
+	ERR_FAIL_COND_V(!object, false);
+
+	if (!has_one_way_collision()) {
+		return false;
+	}
+
+	return p_normal.dot(get_one_way_normal()) <= 0.0f;
 }

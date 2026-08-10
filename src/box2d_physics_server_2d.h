@@ -183,6 +183,7 @@ public:
 	~Box2DPhysicsServer2D();
 
 	Box2DShape2D *get_shape(const RID &p_rid) const { return shape_owner.get_or_null(p_rid); }
+	Box2DBody2D *get_body(const RID &p_rid) const { return body_owner.get_or_null(p_rid); }
 
 private:
 	static void _bind_methods();

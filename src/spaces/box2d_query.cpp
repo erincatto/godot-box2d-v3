@@ -15,9 +15,10 @@ bool ArrayQueryFilter::is_excluded(const Box2DCollisionObject2D *p_object) const
 }
 
 int box2d_cast_shape(const Box2DShapePrimitive &p_shape, const CastQuery p_query, LocalVector<CastHit> &p_results) {
-	CastQueryCollector collector(p_query, p_results);
-	b2ShapeProxy proxy = p_shape.inflated(p_query.margin).get_proxy();
-	b2World_CastShape(p_query.world, &proxy, to_box2d(p_query.translation), p_query.filter.box2d_filter, cast_callback, &collector);
+	Box2DShapePrimitive shape = p_shape.inflated(p_query.margin);
+	b2ShapeProxy proxy = shape.get_proxy();
+	CastQueryCollector collector(p_query, p_results, shape);
+	b2World_CastShape(p_query.world, b2Pos_zero, &proxy, to_box2d(p_query.translation), p_query.filter.box2d_filter, cast_callback, &collector);
 	return collector.count;
 }
 
@@ -25,7 +26,7 @@ int box2d_overlap_shape(const Box2DShapePrimitive &p_shape, const OverlapQuery p
 	Box2DShapePrimitive shape = p_shape.inflated(p_query.margin);
 	b2ShapeProxy proxy = shape.get_proxy();
 	OverlapQueryCollector collector(p_query, p_results, shape);
-	b2World_OverlapShape(p_query.world, &proxy, p_query.filter.box2d_filter, overlap_callback, &collector);
+	b2World_OverlapShape(p_query.world, b2Pos_zero, &proxy, p_query.filter.box2d_filter, overlap_callback, &collector);
 	return collector.count;
 }
 
@@ -45,7 +46,7 @@ bool overlap_callback(b2ShapeId shapeId, void *context) {
 }
 
 /// context = CastQueryCollector
-float cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fraction, void *context) {
+float cast_callback(b2ShapeId shapeId, b2Pos point, b2Vec2 normal, float fraction, void *context) {
 	CastQueryCollector *collector = static_cast<CastQueryCollector *>(context);
 
 	b2BodyId body_id = b2Shape_GetBody(shapeId);
@@ -56,11 +57,31 @@ float cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fracti
 		return -1;
 	}
 
-	if (fraction <= 0.0f && collector->ignore_initial_overlaps) {
-		return -1;
+	Vector2 hit_point = to_godot(point);
+	Vector2 hit_normal = to_godot(normal);
+
+	if (fraction <= 0.0f) {
+		if (collector->ignore_initial_overlaps) {
+			return -1;
+		}
+
+		// An initial overlap comes back with a point somewhere in the overlap region and a zero
+		// normal, which callers cannot use. Collide the pair to recover a real normal and depth.
+		ShapeCollideResult collision = box2d_collide_shapes(
+				collector->shape,
+				b2Transform_identity,
+				shapeId,
+				b2Body_GetTransform(body_id));
+
+		if (collision.point_count == 0) {
+			return -1;
+		}
+
+		hit_point = collision.get_deepest_point().point;
+		hit_normal = collision.normal;
 	}
 
-	collector->results.push_back(CastHit{ object, shape, shapeId, to_godot(point), to_godot(normal), fraction });
+	collector->results.push_back(CastHit{ object, shape, shapeId, hit_point, hit_normal, fraction });
 	collector->count++;
 
 	if (collector->find_nearest) {

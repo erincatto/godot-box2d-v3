@@ -30,7 +30,19 @@ void Box2DArea2D::on_remove_from_space() {
 		in_area_step_list = false;
 	}
 
-	// Areas do not emit events when they are freed - consistent with Godot Physics
+	// Areas do not emit events when they are freed - consistent with Godot Physics.
+	// The overrides still have to come off, otherwise a body that was inside a gravity
+	// replacement keeps a zero gravity scale forever. Areas that remain reapply theirs
+	// at the top of the next step.
+	for (const auto &[object, overlap_count] : object_overlap_count) {
+		Box2DBody2D *body = object->as_body();
+		if (body && body->in_space()) {
+			body->apply_area_overrides();
+		}
+	}
+
+	overlaps.clear();
+	object_overlap_count.clear();
 }
 
 void Box2DArea2D::shapes_changed() {
@@ -112,7 +124,7 @@ void Box2DArea2D::update_overlaps() {
 				shape_overlaps.resize(capacity);
 			}
 
-			int overlap_count = b2Shape_GetSensorOverlaps(shape_id, shape_overlaps.ptr(), capacity);
+			int overlap_count = b2Shape_GetSensorData(shape_id, shape_overlaps.ptr(), capacity);
 
 			for (int i = 0; i < overlap_count; i++) {
 				Box2DShapeInstance *other_shape = static_cast<Box2DShapeInstance *>(b2Shape_GetUserData(shape_overlaps[i]));
