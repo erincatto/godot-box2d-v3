@@ -5,6 +5,7 @@
 #include <godot_cpp/templates/hash_set.hpp>
 
 class Box2DDirectBodyState2D;
+class Box2DPhysicsServer2D;
 
 class Box2DBody2D final : public Box2DCollisionObject2D {
 public:
@@ -57,7 +58,7 @@ public:
 		return intertia > 0.0 ? 1.0 / intertia : 0.0;
 	}
 	void set_mass(float p_mass);
-	float get_inertia() const { return to_godot(to_godot(mass_data.rotationalInertia)); }
+	float get_inertia() const { return to_godot(mass_data.rotationalInertia); }
 	void set_inertia(float p_inertia);
 	Vector2 get_center_of_mass() const { return to_godot(mass_data.center); }
 	Vector2 get_center_of_mass_global() const;
@@ -120,6 +121,12 @@ public:
 	void remove_collision_exception(RID p_rid);
 	TypedArray<RID> get_collision_exceptions() const;
 	_FORCE_INLINE_ bool is_collision_exception(RID p_rid) const { return exceptions.has(p_rid); }
+	_FORCE_INLINE_ bool has_collision_exceptions() const { return !exceptions.is_empty(); }
+
+	/// Exceptions are filter joints, which only exist while both bodies share a space, so the
+	/// space rebuilds them wholesale whenever its membership or any exception set changes.
+	void rebuild_exception_joints(const Box2DPhysicsServer2D *p_server);
+	void destroy_exception_joints();
 
 	float get_character_collision_priority() const { return character_collision_priority; }
 	void set_character_collision_priority(float p_priority) { character_collision_priority = p_priority; }
@@ -177,6 +184,7 @@ protected:
 	Box2DDirectBodyState2D *direct_state = nullptr;
 
 	HashSet<RID> exceptions;
+	LocalVector<b2JointId> exception_joints;
 
 	Vector2 constant_force = Vector2();
 	float constant_torque = 0.0f;

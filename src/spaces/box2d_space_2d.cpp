@@ -4,32 +4,20 @@
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
-void group_task_function(void *p_userdata, uint32_t worker_index) {
-	TracyZoneScoped("Box2D Group Task");
+void task_function(void *p_userdata) {
+	TracyZoneScoped("Box2D Task");
 
 	Box2DTaskData *data = static_cast<Box2DTaskData *>(p_userdata);
-
-	int32_t items_per_task = data->item_count / data->task_count;
-
-	int32_t startIndex = worker_index * items_per_task;
-	int32_t endIndex = startIndex + items_per_task;
-	if (worker_index == data->task_count - 1) {
-		endIndex = data->item_count;
-	}
-
-	data->task(startIndex, endIndex, worker_index, data->task_context);
+	data->task(data->task_context);
 }
 
-void *enqueue_task_callback(b2TaskCallback *task, int32_t itemCount, int32_t minRange, void *taskContext, void *userContext) {
-	Box2DSpace2D *space = static_cast<Box2DSpace2D *>(userContext);
-
-	int32_t task_count = Math::clamp(itemCount / minRange, 1, space->get_max_tasks());
-
-	Box2DTaskData *task_data = new Box2DTaskData{ 0, taskContext, task, itemCount, task_count };
+/// Box2D packs the worker index into the task context, so one enqueue is one run of one callback.
+void *enqueue_task_callback(b2TaskCallback *task, void *taskContext, void *userContext) {
+	Box2DTaskData *task_data = new Box2DTaskData{ 0, task, taskContext };
 
 	static const String task_name("Box2D Task");
 
-	task_data->group_id = WorkerThreadPool::get_singleton()->add_native_group_task(group_task_function, task_data, task_count, task_count, true, task_name);
+	task_data->task_id = WorkerThreadPool::get_singleton()->add_native_task(task_function, task_data, true, task_name);
 
 	return task_data;
 }
@@ -37,54 +25,31 @@ void *enqueue_task_callback(b2TaskCallback *task, int32_t itemCount, int32_t min
 void finish_task_callback(void *taskPtr, void *userContext) {
 	if (taskPtr) {
 		Box2DTaskData *task_data = static_cast<Box2DTaskData *>(taskPtr);
-		WorkerThreadPool::get_singleton()->wait_for_group_task_completion(task_data->group_id);
+		WorkerThreadPool::get_singleton()->wait_for_task_completion(task_data->task_id);
 		delete task_data;
 	}
 }
 
-bool box2d_godot_presolve(b2ShapeId shapeIdA, b2ShapeId shapeIdB, b2Manifold *manifold, void *context) {
-	Box2DBody2D *body_a = static_cast<Box2DCollisionObject2D *>(b2Body_GetUserData(b2Shape_GetBody(shapeIdA)))->as_body();
-	Box2DBody2D *body_b = static_cast<Box2DCollisionObject2D *>(b2Body_GetUserData(b2Shape_GetBody(shapeIdB)))->as_body();
-
-	if (!body_a || !body_b) {
-		return true;
-	}
-
-	if (body_a->is_collision_exception(body_b->get_rid()) ||
-			body_b->is_collision_exception(body_a->get_rid())) {
-		return false;
-	}
-
-	Vector2 normal = to_godot_normalized(manifold->normal);
-
-	float depth = 0.0f;
-
-	if (manifold->pointCount == 2) {
-		depth = -to_godot(Math::min(manifold->points[0].separation, manifold->points[1].separation));
-	} else if (manifold->pointCount == 1) {
-		depth = -to_godot(manifold->points[0].separation);
-	} else {
-		return false;
-	}
-
+bool box2d_godot_presolve(b2ShapeId shapeIdA, b2ShapeId shapeIdB, b2Pos point, b2Vec2 normal, void *context) {
 	const Box2DShapeInstance *shape_a = static_cast<Box2DShapeInstance *>(b2Shape_GetUserData(shapeIdA));
 	const Box2DShapeInstance *shape_b = static_cast<Box2DShapeInstance *>(b2Shape_GetUserData(shapeIdB));
 
-	if (shape_a->has_one_way_collision() || shape_b->has_one_way_collision()) {
-		if (shape_a->should_filter_one_way_collision(body_b->get_linear_velocity(), normal, depth) ||
-				shape_b->should_filter_one_way_collision(body_a->get_linear_velocity(), normal, depth)) {
-			return false;
-		}
+	if (!shape_a->has_one_way_collision() && !shape_b->has_one_way_collision()) {
+		return true;
 	}
 
-	return true;
+	Vector2 godot_normal = to_godot_normalized(normal);
+
+	// The normal points from A to B, so B sees it reversed.
+	return !shape_a->should_filter_one_way_collision(godot_normal) &&
+			!shape_b->should_filter_one_way_collision(-godot_normal);
 }
 
-float godot_friction_callback(float frictionA, int materialA, float frictionB, int materialB) {
+float godot_friction_callback(float frictionA, uint64_t materialA, float frictionB, uint64_t materialB) {
 	return Math::abs(Math::min(frictionA, frictionB));
 }
 
-float godot_restitution_callback(float restitutionA, int materialA, float restitutionB, int materialB) {
+float godot_restitution_callback(float restitutionA, uint64_t materialA, float restitutionB, uint64_t materialB) {
 	return Math::clamp(restitutionA + restitutionB, 0.0f, 1.0f);
 }
 
@@ -92,7 +57,7 @@ Box2DSpace2D::Box2DSpace2D() {
 	substeps = Box2DProjectSettings::get_substeps();
 
 	// Gravity is changed by the default area immediately - the value set here doesn't matter.
-	default_gravity = Vector2(0.0, 9.8);
+	default_gravity = Vector2(0.0, 980.0);
 
 	int hardware_thread_count = OS::get_singleton()->get_processor_count();
 	int max_thread_count = Box2DProjectSettings::get_max_threads();
@@ -108,8 +73,6 @@ Box2DSpace2D::Box2DSpace2D() {
 	world_def.gravity = to_box2d(default_gravity);
 	world_def.contactHertz = Box2DProjectSettings::get_contact_hertz();
 	world_def.contactDampingRatio = Box2DProjectSettings::get_contact_damping_ratio();
-	world_def.jointHertz = Box2DProjectSettings::get_joint_hertz();
-	world_def.jointDampingRatio = Box2DProjectSettings::get_joint_damping_ratio();
 
 	if (Box2DProjectSettings::get_friction_mixing_rule() == Box2DMixingRule::MIXING_RULE_GODOT) {
 		world_def.frictionCallback = godot_friction_callback;
@@ -171,6 +134,27 @@ void Box2DSpace2D::step(float p_step) {
 
 	locked = false;
 	last_step = p_step;
+}
+
+void Box2DSpace2D::rebuild_exception_joints(const Box2DPhysicsServer2D *p_server) {
+	if (!exceptions_dirty) {
+		return;
+	}
+	exceptions_dirty = false;
+
+	LocalVector<Box2DBody2D *> emptied;
+
+	for (Box2DBody2D *body : bodies_with_exceptions) {
+		body->rebuild_exception_joints(p_server);
+		if (!body->has_collision_exceptions()) {
+			emptied.push_back(body);
+		}
+	}
+
+	// Dropped only after the rebuild, which is what tears their last joint down.
+	for (Box2DBody2D *body : emptied) {
+		bodies_with_exceptions.erase(body);
+	}
 }
 
 void Box2DSpace2D::sync_state() {

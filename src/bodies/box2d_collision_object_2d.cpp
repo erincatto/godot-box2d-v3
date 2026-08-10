@@ -57,6 +57,13 @@ void Box2DCollisionObject2D::set_mode(PhysicsServer2D::BodyMode p_mode) {
 	PhysicsServer2D::BodyMode previous_mode = mode;
 	mode = p_mode;
 
+	// Recycled contact points hold friction and presolve results across small motions, which reads
+	// as ghost collision on a character. CharacterBody2D is kinematic.
+	body_def.enableContactRecycling = p_mode != PhysicsServer2D::BODY_MODE_KINEMATIC;
+	if (in_space()) {
+		b2Body_EnableContactRecycling(body_id, body_def.enableContactRecycling);
+	}
+
 	switch (p_mode) {
 		case PhysicsServer2D::BODY_MODE_STATIC:
 			body_def.type = b2_staticBody;
@@ -74,21 +81,21 @@ void Box2DCollisionObject2D::set_mode(PhysicsServer2D::BodyMode p_mode) {
 			break;
 		case PhysicsServer2D::BODY_MODE_RIGID:
 			body_def.type = b2_dynamicBody;
-			body_def.fixedRotation = false;
+			body_def.motionLocks.angularZ = false;
 			if (!in_space()) {
 				return;
 			}
 			b2Body_SetType(body_id, b2BodyType::b2_dynamicBody);
-			b2Body_SetFixedRotation(body_id, false);
+			b2Body_SetMotionLocks(body_id, body_def.motionLocks);
 			break;
 		case PhysicsServer2D::BODY_MODE_RIGID_LINEAR:
 			body_def.type = b2_dynamicBody;
-			body_def.fixedRotation = true;
+			body_def.motionLocks.angularZ = true;
 			if (!in_space()) {
 				return;
 			}
 			b2Body_SetType(body_id, b2BodyType::b2_dynamicBody);
-			b2Body_SetFixedRotation(body_id, true);
+			b2Body_SetMotionLocks(body_id, body_def.motionLocks);
 			break;
 		default:
 			return;
@@ -148,7 +155,7 @@ void Box2DCollisionObject2D::set_transform(const Transform2D &p_transform, bool 
 
 		b2Rot target_rotation = b2MakeRot(rotation);
 		b2Rot current_rotation = b2MakeRot(current_transform.get_rotation());
-		float angular = b2RelativeAngle(target_rotation, current_rotation) / last_step;
+		float angular = b2RelativeAngle(current_rotation, target_rotation) / last_step;
 
 		b2Body_SetLinearVelocity(body_id, to_box2d(linear));
 		b2Body_SetAngularVelocity(body_id, (float)angular);
@@ -345,13 +352,13 @@ int Box2DCollisionObject2D::character_collide(
 		proxy = b2MakeOffsetProxy(proxy.points, proxy.count, proxy.radius, xf.p, xf.q);
 
 		CharacterCollideContext context{ shape_id, xf, shape, p_results };
-		b2World_OverlapShape(space->get_world_id(), &proxy, filter, character_overlap_callback, &context);
+		b2World_OverlapShape(space->get_world_id(), b2Pos_zero, &proxy, filter, character_overlap_callback, &context);
 	}
 
 	return p_results.size();
 }
 
-static float character_cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fraction, void *context) {
+static float character_cast_callback(b2ShapeId shapeId, b2Pos point, b2Vec2 normal, float fraction, void *context) {
 	auto *ctx = static_cast<Box2DCollisionObject2D::CharacterCastContext *>(context);
 
 	Box2DShapeInstance *this_shape = static_cast<Box2DShapeInstance *>(b2Shape_GetUserData(ctx->shape_id));
@@ -368,22 +375,34 @@ static float character_cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 nor
 		return -1.0f;
 	}
 
+	Vector2 godot_point = to_godot(point);
 	Vector2 godot_normal = to_godot_normalized(normal);
+
+	// An initial overlap arrives with a zero normal, so the blocking test below cannot judge it.
+	// Take the normal from the current manifold and ignore the overlap if moving all the way clears it.
+	if (fraction == 0.0f) {
+		b2Transform other_transform = b2Body_GetTransform(other_body_id);
+
+		ShapeCollideResult current = box2d_collide_shapes(ctx->shape, ctx->transform, shapeId, other_transform);
+		if (current.point_count == 0) {
+			return -1.0f;
+		}
+
+		b2Transform xfa = ctx->transform;
+		xfa.p += to_box2d(ctx->motion);
+
+		ShapeCollideResult collision = box2d_collide_shapes(ctx->shape, xfa, shapeId, other_transform);
+		if (collision.point_count == 0) {
+			return -1.0f;
+		}
+
+		godot_point = current.get_deepest_point().point;
+		godot_normal = current.normal;
+	}
 
 	// ignore non-blocking hits
 	if (ctx->motion.length_squared() > 0.0f && ctx->motion.normalized().dot(godot_normal) >= -CMP_EPSILON) {
 		return -1.0f;
-	}
-
-	// ignore initial overlaps if they can be resolved by moving all the way
-	if (fraction == 0.0f) {
-		b2Transform xfa = ctx->transform;
-		xfa.p += to_box2d(ctx->motion);
-
-		ShapeCollideResult collision = box2d_collide_shapes(ctx->shape, xfa, shapeId, b2Body_GetTransform(other_body_id));
-		if (collision.point_count == 0) {
-			return -1.0f;
-		}
 	}
 
 	if (other_shape->has_one_way_collision()) {
@@ -400,7 +419,7 @@ static float character_cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 nor
 	}
 
 	ctx->result.hit = true;
-	ctx->result.point = to_godot(point);
+	ctx->result.point = godot_point;
 	ctx->result.normal = godot_normal;
 	ctx->result.unsafe_fraction = fraction;
 	ctx->result.shape_id = ctx->shape_id;
@@ -432,7 +451,7 @@ CharacterCastResult Box2DCollisionObject2D::character_cast(const Transform2D &p_
 		proxy = b2MakeOffsetProxy(proxy.points, proxy.count, proxy.radius, xf.p, xf.q);
 
 		CharacterCastContext context{ shape_id, xf, shape, result, motion, p_margin };
-		b2World_CastShape(space->get_world_id(), &proxy, to_box2d(motion), filter, character_cast_callback, &context);
+		b2World_CastShape(space->get_world_id(), b2Pos_zero, &proxy, to_box2d(motion), filter, character_cast_callback, &context);
 	}
 
 	return result;

@@ -32,6 +32,9 @@ public:
 	float get_max_bias() const { return max_bias; }
 
 protected:
+	/// Joint softness is tuned per joint, so the project-wide setting is applied at creation.
+	void apply_constraint_tuning();
+
 	Box2DBody2D *body_a = nullptr;
 	Box2DBody2D *body_b = nullptr;
 	PhysicsServer2D::JointType type = PhysicsServer2D::JOINT_TYPE_MAX;

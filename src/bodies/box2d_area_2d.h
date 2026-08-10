@@ -118,10 +118,6 @@ public:
 	void set_body_monitor_callback(const Callable &p_callback) { body_monitor_callback = p_callback; }
 	void set_area_monitor_callback(const Callable &p_callback) { area_monitor_callback = p_callback; }
 
-	bool operator<(const Box2DArea2D &other) const {
-		return get_priority() < other.get_priority();
-	}
-
 	void shapes_changed() override;
 
 protected:
@@ -140,8 +136,11 @@ protected:
 	Callable body_monitor_callback;
 	Callable area_monitor_callback;
 
-	float gravity_strength = 9.8;
-	Vector2 gravity_direction = Vector2(0, -1);
+	/// Pixels per second squared and screen down, matching the space default. Godot Physics keeps
+	/// these in meters because its project settings always overwrite them, but an area built
+	/// straight through the server API never gets that far.
+	float gravity_strength = 980.0;
+	Vector2 gravity_direction = Vector2(0, 1);
 	float linear_damp = 0.1;
 	float angular_damp = 0.1;
 

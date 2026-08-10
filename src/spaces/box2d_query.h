@@ -129,16 +129,22 @@ struct CastQueryCollector {
 	bool ignore_initial_overlaps = false;
 	const QueryFilter filter;
 	LocalVector<CastHit> &results;
+	/// The shape being cast, in world coordinates. Needed to recover a manifold from an initial
+	/// overlap, which Box2D reports with a zero normal.
+	Box2DShapePrimitive shape = {};
 
-	explicit CastQueryCollector(const CastQuery &p_query, LocalVector<CastHit> &p_results) :
+	explicit CastQueryCollector(const CastQuery &p_query, LocalVector<CastHit> &p_results, Box2DShapePrimitive p_shape) :
 			results(p_results),
 			max_results(p_query.max_results),
 			filter(p_query.filter),
 			find_nearest(p_query.find_nearest),
-			ignore_initial_overlaps(p_query.ignore_intial_overlaps) {}
+			ignore_initial_overlaps(p_query.ignore_intial_overlaps),
+			shape(p_shape) {}
 
+	/// Ray casts have no shape to build a manifold from, so they always drop initial overlaps.
+	/// Godot reports a ray starting inside a shape through hit_from_inside instead.
 	explicit CastQueryCollector(int p_max_results, const QueryFilter p_filter, bool p_find_nearest, LocalVector<CastHit> &p_results) :
-			results(p_results), max_results(p_max_results), filter(p_filter), find_nearest(p_find_nearest) {}
+			results(p_results), max_results(p_max_results), filter(p_filter), find_nearest(p_find_nearest), ignore_initial_overlaps(true) {}
 };
 
 struct OverlapQueryCollector {
@@ -157,7 +163,7 @@ struct OverlapQueryCollector {
 
 bool overlap_callback(b2ShapeId shapeId, void *context);
 
-float cast_callback(b2ShapeId shapeId, b2Vec2 point, b2Vec2 normal, float fraction, void *context);
+float cast_callback(b2ShapeId shapeId, b2Pos point, b2Vec2 normal, float fraction, void *context);
 
 int find_nearest_cast_hit(LocalVector<CastHit> &p_results);
 

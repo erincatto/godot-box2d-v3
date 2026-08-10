@@ -1,6 +1,7 @@
 #pragma once
 
 #include "box2d/box2d.h"
+#include "box2d/constants.h"
 #include <godot_cpp/templates/local_vector.hpp>
 #include <godot_cpp/templates/vector.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -14,8 +15,11 @@
 
 using namespace godot;
 
-extern float BOX2D_PIXELS_PER_METER;
-extern float BOX2D_LINEAR_SLOP;
+/// Box2D is told how large a meter is at startup, so it scales its own tolerances and def
+/// defaults and the simulation runs directly in pixels. Nothing crossing the boundary needs
+/// scaling, which is what keeps torque, inertia and angular velocity from each needing a
+/// different power of the pixel scale.
+void box2d_set_pixels_per_meter(float p_value);
 
 /// Mask bit used by all bodies.
 const uint64_t BODY_MASK_BIT = (1ULL << 63);
@@ -26,13 +30,8 @@ const uint64_t AREA_MASK_BIT = (1ULL << 62);
 /// Mask bit used by all monitorable areas.
 const uint64_t AREA_MONITORABLE_MASK_BIT = (1ULL << 61);
 
-_FORCE_INLINE_ void box2d_set_pixels_per_meter(float p_value) {
-	BOX2D_PIXELS_PER_METER = p_value;
-}
-
 _FORCE_INLINE_ Vector2 to_godot(const b2Vec2 p_vec) {
-	float scale = BOX2D_PIXELS_PER_METER;
-	return Vector2(scale * p_vec.x, scale * p_vec.y);
+	return Vector2(p_vec.x, p_vec.y);
 }
 
 _FORCE_INLINE_ Vector2 to_godot_normalized(const b2Vec2 p_vec) {
@@ -40,22 +39,21 @@ _FORCE_INLINE_ Vector2 to_godot_normalized(const b2Vec2 p_vec) {
 }
 
 _FORCE_INLINE_ b2Vec2 to_box2d(const Vector2 p_vec) {
-	float scale = 1 / BOX2D_PIXELS_PER_METER;
-	return scale * b2Vec2{ (float)p_vec.x, (float)p_vec.y };
+	return b2Vec2{ (float)p_vec.x, (float)p_vec.y };
 }
 
 _FORCE_INLINE_ b2Vec2 to_box2d_normalized(const Vector2 p_vec) {
 	return b2Normalize(b2Vec2{ (float)p_vec.x, (float)p_vec.y });
 }
 
-_FORCE_INLINE_ float to_box2d(float p_length) {
-	float scale = 1 / BOX2D_PIXELS_PER_METER;
-	return scale * p_length;
+/// Values are 1:1 across the boundary. These remain as the narrowing point for double builds
+/// and to mark where a quantity changes hands.
+_FORCE_INLINE_ float to_box2d(float p_value) {
+	return p_value;
 }
 
-_FORCE_INLINE_ float to_godot(float p_length) {
-	float scale = BOX2D_PIXELS_PER_METER;
-	return scale * p_length;
+_FORCE_INLINE_ float to_godot(float p_value) {
+	return p_value;
 }
 
 _FORCE_INLINE_ b2Transform to_box2d(Transform2D p_transform) {
@@ -170,57 +168,6 @@ private:
 	int joint_count = 0;
 };
 
-/// Range for iterating chain segment shapes.
-class ChainSegmentRange {
-public:
-	explicit ChainSegmentRange(b2ChainId chain_id) :
-			chain_id(chain_id) {
-		segment_count = b2Chain_GetSegmentCount(chain_id);
-		shape_ids = memnew_arr(b2ShapeId, segment_count);
-		b2Chain_GetSegments(chain_id, shape_ids, segment_count);
-	}
-
-	~ChainSegmentRange() {
-		memdelete_arr(shape_ids);
-	}
-
-	class Iterator {
-	public:
-		Iterator(b2ShapeId *ids, int index) :
-				shape_ids(ids), index(index) {}
-
-		b2ShapeId operator*() const {
-			return shape_ids[index];
-		}
-
-		Iterator &operator++() {
-			++index;
-			return *this;
-		}
-
-		bool operator!=(const Iterator &other) const {
-			return index != other.index;
-		}
-
-	private:
-		b2ShapeId *shape_ids;
-		int index;
-	};
-
-	Iterator begin() const {
-		return Iterator(shape_ids, 0);
-	}
-
-	Iterator end() const {
-		return Iterator(shape_ids, segment_count);
-	}
-
-private:
-	b2ChainId chain_id;
-	b2ShapeId *shape_ids;
-	int segment_count;
-};
-
 struct ShapeCollidePoint {
 	Vector2 point = Vector2();
 	/// Positive if penetrating
@@ -318,7 +265,6 @@ struct Box2DShapePrimitive {
 	}
 
 	Box2DShapePrimitive inflated(float p_radius) const {
-		p_radius = to_box2d(p_radius);
 		Box2DShapePrimitive result;
 
 		switch (type) {
